@@ -3,8 +3,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import YouTube, { YouTubePlayer, YouTubeProps } from 'react-youtube';
 
 export default function YoutubePlayer() {
-
-
     const [totalDuration, setTotalDuration] = useState(0);
     const [currentTime, setCurrentTime] = useState(0);
     const [paused, setPaused] = useState(false);
@@ -34,7 +32,6 @@ export default function YoutubePlayer() {
             console.log('Received:', event.data);
             const data: socketMessage = JSON.parse(event.data);
             if (data.type == "pause" || data.type == "play") {
-                // console.log(paused, data.type);
                 const action = data.type == "pause" ? 'pause' : 'play';
                 handlePause(action, true);
             }
@@ -67,14 +64,10 @@ export default function YoutubePlayer() {
     const playerRef = useRef<YouTubePlayer | null>(null);
     const onPlayerReady: YouTubeProps['onReady'] = (event) => {
         playerRef.current = event.target;
-
         setTotalDuration(playerRef.current.getDuration());
         playerReady.current = true;
-        debugger
-        const timestamp = initialLoadTime?.time ? ( initialLoadTime?.time + (((Date.now() - initialLoadTime.currentTime)) / 1000) ) : 0;
+        const timestamp = initialLoadTime?.time ? (initialLoadTime?.time + (((Date.now() - initialLoadTime.currentTime)) / 1000)) : 0;
         handleSeek(Number(timestamp), true);
-        // access to player in all event handlers via event.target
-        // event.target.playVideo(1);
     }
 
     function handleSeek(time: number, serverInitiated = false) {
@@ -90,7 +83,6 @@ export default function YoutubePlayer() {
                     ws.current.send(JSON.stringify(data));
                 }
             }
-
         }
     }
 
@@ -126,33 +118,72 @@ export default function YoutubePlayer() {
         return `${minutes}:${seconds.toString().padStart(2, '0')}`;
     }
 
-
     const opts: YouTubeProps['opts'] = {
-        height: '390',
-        width: '640',
+        height: '100%',
+        width: '100%',
         playerVars: {
-            // https://developers.google.com/youtube/player_parameters
             autoplay: 1,
             mute: 1,
             controls: 0,
+            modestbranding: 0,
         },
     };
 
-    return <>
-        <YouTube ref={playerRef} videoId="bHQqvYy5KYo" opts={opts} onReady={onPlayerReady} />
-        <button onClick={() => handlePause(paused ? 'play' : 'pause')}> {paused ? 'Play' : 'Pause'} </button>
-        <div>
-            {formatTime(currentTime)} / {formatTime(totalDuration)}
-            <input
-                type="range"
-                min="0"
-                max={totalDuration || 1} // Use actual duration, fallback to 1 to avoid errors
-                value={currentTime}
-                onChange={(e) => handleSeek(Number(e.target.value))}
-                style={{ width: '300px' }}
-                step="0.1" // Allow finer seeking control
-            />
+    return (
+        <div style={{
+            width: '100%',
+            height: '100vh',
+            display: 'flex',
+            flexDirection: 'column',
+            padding: '20px',
+            boxSizing: 'border-box'
+        }}>
+            <div style={{
+                width: '100%',
+                height: '70%',
+                marginBottom: '20px'
+            }}>
+                <div style={{
+                    width: '100%',
+                    height: '100%'
+                }}>
+                    <YouTube
+                        ref={playerRef}
+                        videoId="bHQqvYy5KYo"
+                        opts={opts}
+                        onReady={onPlayerReady}
+                        style={{
+                            width: '100%',
+                            height: '100%'
+                        }}
+                    />
+                </div>
+            </div>
+
+            <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '20px',
+                marginBottom: '10px'
+            }}>
+                <button onClick={() => handlePause(paused ? 'play' : 'pause')}>
+                    {paused ? 'Play' : 'Pause'}
+                </button>
+                <button onClick={() => handleMute()}>Unmute</button>
+            </div>
+
+            <div>
+                {formatTime(currentTime)} / {formatTime(totalDuration)}
+                <input
+                    type="range"
+                    min="0"
+                    max={totalDuration || 1}
+                    value={currentTime}
+                    onChange={(e) => handleSeek(Number(e.target.value))}
+                    style={{ width: '300px', marginLeft: '10px' }}
+                    step="0.1"
+                />
+            </div>
         </div>
-        <button onClick={() => handleMute()}>Unmute</button>
-    </>;
+    );
 }
