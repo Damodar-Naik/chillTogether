@@ -1,6 +1,6 @@
 import { time } from 'console';
 import React, { useState, useEffect, useRef } from 'react';
-import YouTube, { YouTubeProps } from 'react-youtube';
+import YouTube, { YouTubePlayer, YouTubeProps } from 'react-youtube';
 
 export default function YoutubePlayer() {
 
@@ -64,7 +64,7 @@ export default function YoutubePlayer() {
         };
     }, []);
 
-    const playerRef = useRef<any>(null);
+    const playerRef = useRef<YouTubePlayer | null>(null);
     const onPlayerReady: YouTubeProps['onReady'] = (event) => {
         playerRef.current = event.target;
 
