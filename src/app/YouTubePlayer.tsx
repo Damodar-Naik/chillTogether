@@ -1,27 +1,34 @@
 import { time } from 'console';
 import React, { useState, useEffect, useRef } from 'react';
 import YouTube, { YouTubePlayer, YouTubeProps } from 'react-youtube';
+import getVideoId from 'get-video-id';
 
 export default function YoutubePlayer() {
     const [totalDuration, setTotalDuration] = useState(0);
     const [currentTime, setCurrentTime] = useState(0);
+    const [videoId, setVideoId] = useState('');
     const [paused, setPaused] = useState(false);
     const intervalRef = useRef<NodeJS.Timeout | null>(null);
     const socketReady = useRef(false);
     const playerReady = useRef(false);
-    let initialLoadTime = {
+    const urlInputRef = useRef<HTMLInputElement | null>(null);
+    let videoData = {
         time: 0,
-        currentTime: 0
+        currentTime: 0,
+        videoId: ''
     };
 
     type socketMessage = {
-        type: 'play' | 'pause' | 'seek' | 'connected';
+        type: 'loadUrl' | 'play' | 'pause' | 'seek' | 'connected';
         message: string;
+        jsonData?: string; // json string
     }
+
     const ws = useRef<WebSocket>(null);
 
     useEffect(() => {
-        ws.current = new WebSocket('https://chilltogether-backend.onrender.com');
+        // ws.current = new WebSocket('https://chilltogether-backend.onrender.com');
+        ws.current = new WebSocket('ws://localhost:8080');
 
         ws.current.onopen = () => {
             console.log('Connected to WebSocket server');
@@ -41,7 +48,13 @@ export default function YoutubePlayer() {
             }
 
             if (data.type == "connected") {
-                initialLoadTime = JSON.parse(data.message);
+                videoData = JSON.parse(data?.jsonData || '{}');
+            }
+
+            if (data.type == "loadUrl") {
+                videoData = JSON.parse(data?.jsonData || '{}');
+                setVideoId(videoData.videoId);
+                playerRef?.current?.loadVideoById(videoData.videoId)
             }
         };
 
@@ -66,7 +79,11 @@ export default function YoutubePlayer() {
         playerRef.current = event.target;
         setTotalDuration(playerRef.current.getDuration());
         playerReady.current = true;
-        const timestamp = initialLoadTime?.time ? (initialLoadTime?.time + (((Date.now() - initialLoadTime.currentTime)) / 1000)) : 0;
+        if (videoData.videoId) {
+            setVideoId(videoData.videoId);
+            playerRef?.current?.loadVideoById(videoData.videoId)
+        }
+        const timestamp = videoData?.currentTime ? (videoData?.time + (((Date.now() - videoData.currentTime)) / 1000)) : 0;
         handleSeek(Number(timestamp), true);
     }
 
@@ -112,6 +129,33 @@ export default function YoutubePlayer() {
         if (playerReady?.current) playerRef?.current?.unMute();
     }
 
+    function handleUrlLoad() {
+        const url = urlInputRef?.current?.value;
+        if (!url) return;
+        // Find the last slash position
+        const { id } = getVideoId(url);
+        if (id?.length !== 11) {
+            console.error("Invalid video URL");
+            return;
+        }
+        if (id) {
+
+            setVideoId(id);
+            const data: socketMessage = {
+                type: 'loadUrl',
+                message: id,
+                jsonData: JSON.stringify({
+                    time: 0,
+                    currentTime: Date.now(),
+                    videoId: id
+                })
+            }
+            ws?.current?.send(JSON.stringify(data));
+            playerRef?.current?.loadVideoById(id);
+        }
+
+    }
+
     const formatTime = (time: number) => {
         const minutes = Math.floor(time / 60);
         const seconds = Math.floor(time % 60);
@@ -130,60 +174,68 @@ export default function YoutubePlayer() {
     };
 
     return (
-        <div style={{
-            width: '100%',
-            height: '100vh',
-            display: 'flex',
-            flexDirection: 'column',
-            padding: '20px',
-            boxSizing: 'border-box'
-        }}>
-            <div style={{
-                width: '100%',
-                height: '70%',
-                marginBottom: '20px'
-            }}>
+        <>
+            <div>
+                <input type="search" placeholder="Enter youtube url" id="url" ref={urlInputRef} />
+                <button onClick={() => handleUrlLoad()}>Load video</button>
+            </div >
+            {videoId &&
                 <div style={{
                     width: '100%',
-                    height: '100%'
+                    height: '100vh',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    padding: '20px',
+                    boxSizing: 'border-box'
                 }}>
-                    <YouTube
-                        ref={playerRef}
-                        videoId="bHQqvYy5KYo"
-                        opts={opts}
-                        onReady={onPlayerReady}
-                        style={{
+                    <div style={{
+                        width: '100%',
+                        height: '70%',
+                        marginBottom: '20px'
+                    }}>
+                        <div style={{
                             width: '100%',
                             height: '100%'
-                        }}
-                    />
+                        }}>
+                            <YouTube
+                                ref={playerRef}
+                                videoId={videoId}
+                                opts={opts}
+                                onReady={onPlayerReady}
+                                style={{
+                                    width: '100%',
+                                    height: '100%'
+                                }}
+                            />
+                        </div>
+                    </div>
+
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '20px',
+                        marginBottom: '10px'
+                    }}>
+                        <button onClick={() => handlePause(paused ? 'play' : 'pause')}>
+                            {paused ? 'Play' : 'Pause'}
+                        </button>
+                        <button onClick={() => handleMute()}>Unmute</button>
+                    </div>
+
+                    <div>
+                        {formatTime(currentTime)} / {formatTime(totalDuration)}
+                        <input
+                            type="range"
+                            min="0"
+                            max={totalDuration || 1}
+                            value={currentTime}
+                            onChange={(e) => handleSeek(Number(e.target.value))}
+                            style={{ width: '300px', marginLeft: '10px' }}
+                            step="0.1"
+                        />
+                    </div>
                 </div>
-            </div>
-
-            <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '20px',
-                marginBottom: '10px'
-            }}>
-                <button onClick={() => handlePause(paused ? 'play' : 'pause')}>
-                    {paused ? 'Play' : 'Pause'}
-                </button>
-                <button onClick={() => handleMute()}>Unmute</button>
-            </div>
-
-            <div>
-                {formatTime(currentTime)} / {formatTime(totalDuration)}
-                <input
-                    type="range"
-                    min="0"
-                    max={totalDuration || 1}
-                    value={currentTime}
-                    onChange={(e) => handleSeek(Number(e.target.value))}
-                    style={{ width: '300px', marginLeft: '10px' }}
-                    step="0.1"
-                />
-            </div>
-        </div>
+            }
+        </>
     );
 }
