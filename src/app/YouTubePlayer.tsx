@@ -1,4 +1,3 @@
-import { time } from 'console';
 import React, { useState, useEffect, useRef } from 'react';
 import YouTube, { YouTubePlayer, YouTubeProps } from 'react-youtube';
 import getVideoId from 'get-video-id';
@@ -12,11 +11,18 @@ export default function YoutubePlayer() {
     const socketReady = useRef(false);
     const playerReady = useRef(false);
     const urlInputRef = useRef<HTMLInputElement | null>(null);
-    let videoData = {
+    type VideoDataType = {
+        time: number;
+        currentTime: number;
+        videoId: string;
+        status: 'playing' | 'paused' | 'seek' | 'buffering' | 'ended';
+    }
+    const videoData = useRef<VideoDataType>({
         time: 0,
         currentTime: 0,
-        videoId: ''
-    };
+        videoId: '',
+        status: 'paused' // playing, paused, seek, buffering, ended
+    });
 
     type socketMessage = {
         type: 'loadUrl' | 'play' | 'pause' | 'seek' | 'connected';
@@ -39,22 +45,27 @@ export default function YoutubePlayer() {
             console.log('Received:', event.data);
             const data: socketMessage = JSON.parse(event.data);
             if (data.type == "pause" || data.type == "play") {
+                videoData.current = JSON.parse(data?.jsonData || '{}');
                 const action = data.type == "pause" ? 'pause' : 'play';
                 handlePause(action, true);
             }
 
             if (data.type == "seek") {
+                videoData.current.status = 'playing';
                 handleSeek(Number(data.message), true);
             }
 
             if (data.type == "connected") {
-                videoData = JSON.parse(data?.jsonData || '{}');
+                videoData.current = JSON.parse(data?.jsonData || '{}');
+                if (videoData.current.videoId) {
+                    setVideoId(videoData.current.videoId);
+                }
             }
 
             if (data.type == "loadUrl") {
-                videoData = JSON.parse(data?.jsonData || '{}');
-                setVideoId(videoData.videoId);
-                playerRef?.current?.loadVideoById(videoData.videoId)
+                videoData.current = JSON.parse(data?.jsonData || '{}');
+                setVideoId(videoData.current.videoId);
+                playerRef?.current?.loadVideoById(videoData.current.videoId)
             }
         };
 
@@ -79,21 +90,48 @@ export default function YoutubePlayer() {
         playerRef.current = event.target;
         setTotalDuration(playerRef.current.getDuration());
         playerReady.current = true;
-        if (videoData.videoId) {
-            setVideoId(videoData.videoId);
-            playerRef?.current?.loadVideoById(videoData.videoId)
+        if (videoData?.current?.videoId) {
+            setVideoId(videoData.current.videoId);
+            playerRef?.current?.loadVideoById(videoData.current.videoId)
         }
-        const timestamp = videoData?.currentTime ? (videoData?.time + (((Date.now() - videoData.currentTime)) / 1000)) : 0;
-        handleSeek(Number(timestamp), true);
+        const timestamp = videoData.current?.currentTime ? (videoData.current?.time + (((Date.now() - videoData.current.currentTime)) / 1000)) : 0;
+        handleSeek(Math.round(Number(timestamp)), true);
+    }
+
+    const onPlayerPause: YouTubeProps['onPause'] = (event) => {
+        console.log('video paused', event)
+        if (videoData?.current?.status == 'playing') {
+            playerRef?.current?.playVideo();
+        }
+    }
+
+    const onPlayerPlay: YouTubeProps['onPlay'] = (event) => {
+
+        const timestamp = videoData.current?.currentTime ? (videoData.current?.time + (((Date.now() - videoData.current.currentTime)) / 1000)) : 0;
+        if (Math.abs(event.target.getCurrentTime() - timestamp) > 2) {
+            handleSeek(Number(timestamp), true);
+        }
+
+        if (videoData?.current?.status == 'paused') {
+            handlePause('pause', true);
+        }
     }
 
     function handleSeek(time: number, serverInitiated = false) {
         if (socketReady.current && playerReady.current) {
             playerRef?.current?.seekTo(time, true);
+            console.log("inside seek", time);
+            videoData.current = {
+                time,
+                currentTime: Date.now(),
+                videoId: videoId,
+                status: videoData.current.status
+            }
             if (!serverInitiated) {
                 const data: socketMessage = {
                     type: 'seek',
                     message: time.toString(),
+                    jsonData: JSON.stringify(videoData.current)
                 }
 
                 if (ws.current) {
@@ -104,7 +142,6 @@ export default function YoutubePlayer() {
     }
 
     const handlePause = (action: 'play' | 'pause', serverInitiated = false) => {
-        debugger;
         if (action === 'play') {
             playerRef?.current?.playVideo();
             setPaused(false);
@@ -112,21 +149,24 @@ export default function YoutubePlayer() {
             playerRef?.current?.pauseVideo();
             setPaused(true);
         }
-
+        const time = playerRef?.current?.getCurrentTime() || 0;
+        videoData.current = {
+            time,
+            currentTime: Date.now(),
+            videoId: videoId,
+            status: action == 'play' ? 'playing' : 'paused'
+        }
         if (socketReady.current && playerReady.current && !serverInitiated) {
             const data: socketMessage = {
                 type: action == 'play' ? 'play' : 'pause',
                 message: playerRef?.current.getCurrentTime().toString(),
+                jsonData: JSON.stringify(videoData.current)
             }
 
             if (ws.current) {
                 ws.current.send(JSON.stringify(data));
             }
         }
-    }
-
-    function handleMute() {
-        if (playerReady?.current) playerRef?.current?.unMute();
     }
 
     function handleUrlLoad() {
@@ -137,6 +177,12 @@ export default function YoutubePlayer() {
         if (id?.length !== 11) {
             console.error("Invalid video URL");
             return;
+        }
+        videoData.current = {
+            time: 0,
+            currentTime: Date.now(),
+            videoId: id,
+            status: 'playing'
         }
         if (id) {
 
@@ -168,7 +214,6 @@ export default function YoutubePlayer() {
         playerVars: {
             autoplay: 1,
             mute: 1,
-            controls: 0,
             modestbranding: 0,
         },
     };
@@ -202,6 +247,8 @@ export default function YoutubePlayer() {
                                 videoId={videoId}
                                 opts={opts}
                                 onReady={onPlayerReady}
+                                onPlay={onPlayerPlay}
+                                onPause={onPlayerPause}
                                 style={{
                                     width: '100%',
                                     height: '100%'
@@ -219,7 +266,6 @@ export default function YoutubePlayer() {
                         <button onClick={() => handlePause(paused ? 'play' : 'pause')}>
                             {paused ? 'Play' : 'Pause'}
                         </button>
-                        <button onClick={() => handleMute()}>Unmute</button>
                     </div>
 
                     <div>
