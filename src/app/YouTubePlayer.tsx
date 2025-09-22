@@ -33,8 +33,7 @@ export default function YoutubePlayer() {
     const ws = useRef<WebSocket>(null);
 
     useEffect(() => {
-        ws.current = new WebSocket('https://chilltogether-backend.onrender.com');
-        // ws.current = new WebSocket('ws://localhost:8080');
+        ws.current = new WebSocket(process.env.NEXT_PUBLIC_BACKEND_URL || 'ws://localhost:8080');
 
         ws.current.onopen = () => {
             console.log('Connected to WebSocket server');
