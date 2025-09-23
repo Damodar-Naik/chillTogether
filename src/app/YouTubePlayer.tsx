@@ -51,7 +51,7 @@ export default function YoutubePlayer() {
 
             if (data.type == "seek") {
                 videoData.current.status = 'playing';
-                handleSeek(Number(data.message), true);
+                handleSeek(Math.round(Number(data.message)), true);
             }
 
             if (data.type == "connected") {
@@ -89,11 +89,16 @@ export default function YoutubePlayer() {
         playerRef.current = event.target;
         setTotalDuration(playerRef.current.getDuration());
         playerReady.current = true;
+        const videoEnded = videoData.current.status === 'ended' || (videoData.current.status === 'playing' && (videoData.current.time + ((Date.now() - videoData.current.currentTime) / 1000)) >= playerRef.current.getDuration());
+        if (videoData.current.status === 'playing' && videoEnded) {
+            videoData.current.status = 'ended';
+        }
         if (videoData?.current?.videoId) {
             setVideoId(videoData.current.videoId);
             playerRef?.current?.loadVideoById(videoData.current.videoId)
         }
-        const timestamp = videoData.current?.currentTime ? (videoData.current?.time + (((Date.now() - videoData.current.currentTime)) / 1000)) : 0;
+        let timestamp = videoData.current?.currentTime ? (videoData.current?.time + (((Date.now() - videoData.current.currentTime)) / 1000)) : 0;
+        timestamp = videoData.current.status == 'paused' ? videoData.current?.time : timestamp;
         handleSeek(Math.round(Number(timestamp)), true);
     }
 
@@ -106,14 +111,26 @@ export default function YoutubePlayer() {
 
     const onPlayerPlay: YouTubeProps['onPlay'] = (event) => {
 
-        const timestamp = videoData.current?.currentTime ? (videoData.current?.time + (((Date.now() - videoData.current.currentTime)) / 1000)) : 0;
-        if (Math.abs(event.target.getCurrentTime() - timestamp) > 2) {
+        let timestamp = videoData.current?.currentTime ? (videoData.current?.time + (((Date.now() - videoData.current.currentTime)) / 1000)) : 0;
+        timestamp = videoData.current.status == 'paused' ? videoData.current?.time : timestamp;
+        if (videoData.current.status === 'ended') {
+            playerRef.current.seekTo(playerRef.current.getDuration(), true);
+            videoData.current.status = 'playing';
+            return;
+        }
+        if (Math.abs(event.target.getCurrentTime() - timestamp) > 1.5) {
             handleSeek(Number(timestamp), true);
         }
 
         if (videoData?.current?.status == 'paused') {
             handlePause('pause', true);
         }
+    }
+
+    const onPlayerEnd: YouTubeProps['onEnd'] = (event) => {
+        setCurrentTime(event.target.getDuration());
+        setTotalDuration(event.target.getDuration());
+        setPaused(true);
     }
 
     function handleSeek(time: number, serverInitiated = false) {
@@ -148,7 +165,8 @@ export default function YoutubePlayer() {
             playerRef?.current?.pauseVideo();
             setPaused(true);
         }
-        const time = playerRef?.current?.getCurrentTime() || 0;
+        let time = Math.round(playerRef?.current?.getCurrentTime()) || 0;
+        if (time >= (playerRef.current.getDuration() -1)) { time = 0 }
         videoData.current = {
             time,
             currentTime: Date.now(),
@@ -248,6 +266,7 @@ export default function YoutubePlayer() {
                                 onReady={onPlayerReady}
                                 onPlay={onPlayerPlay}
                                 onPause={onPlayerPause}
+                                onEnd={onPlayerEnd}
                                 style={{
                                     width: '100%',
                                     height: '100%'
