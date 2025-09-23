@@ -7,30 +7,87 @@ export default function YoutubePlayer() {
     const [currentTime, setCurrentTime] = useState(0);
     const [videoId, setVideoId] = useState('');
     const [paused, setPaused] = useState(false);
+    const [isFullscreen, setIsFullscreen] = useState(false);
     const intervalRef = useRef<NodeJS.Timeout | null>(null);
     const socketReady = useRef(false);
     const playerReady = useRef(false);
     const urlInputRef = useRef<HTMLInputElement | null>(null);
+    const playerContainerRef = useRef<HTMLDivElement>(null);
+
     type VideoDataType = {
         time: number;
         currentTime: number;
         videoId: string;
         status: 'playing' | 'paused' | 'seek' | 'buffering' | 'ended';
     }
+
     const videoData = useRef<VideoDataType>({
         time: 0,
         currentTime: 0,
         videoId: '',
-        status: 'paused' // playing, paused, seek, buffering, ended
+        status: 'paused'
     });
 
     type socketMessage = {
         type: 'loadUrl' | 'play' | 'pause' | 'seek' | 'connected';
         message: string;
-        jsonData?: string; // json string
+        jsonData?: string;
     }
 
     const ws = useRef<WebSocket>(null);
+    const playerRef = useRef<YouTubePlayer | null>(null);
+
+    // Fullscreen functions
+    const enterFullscreen = () => {
+        const element = playerContainerRef.current;
+        if (!element) return;
+
+        if (element.requestFullscreen) {
+            element.requestFullscreen();
+        } else if ((element as any).webkitRequestFullscreen) {
+            (element as any).webkitRequestFullscreen();
+        } else if ((element as any).msRequestFullscreen) {
+            (element as any).msRequestFullscreen();
+        }
+    };
+
+    const exitFullscreen = () => {
+        if (document.exitFullscreen) {
+            document.exitFullscreen();
+        } else if ((document as any).webkitExitFullscreen) {
+            (document as any).webkitExitFullscreen();
+        } else if ((document as any).msExitFullscreen) {
+            (document as any).msExitFullscreen();
+        }
+    };
+
+    const toggleFullscreen = () => {
+        if (!isFullscreen) {
+            enterFullscreen();
+        } else {
+            exitFullscreen();
+        }
+    };
+
+    // Fullscreen change event listener
+    useEffect(() => {
+        const handleFullscreenChange = () => {
+            const fullscreenElement = document.fullscreenElement ||
+                (document as any).webkitFullscreenElement ||
+                (document as any).msFullscreenElement;
+            setIsFullscreen(!!fullscreenElement);
+        };
+
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
+        document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+        document.addEventListener('msfullscreenchange', handleFullscreenChange);
+
+        return () => {
+            document.removeEventListener('fullscreenchange', handleFullscreenChange);
+            document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+            document.removeEventListener('msfullscreenchange', handleFullscreenChange);
+        };
+    }, []);
 
     useEffect(() => {
         ws.current = new WebSocket(process.env.NEXT_PUBLIC_BACKEND_URL || 'ws://localhost:8080');
@@ -43,28 +100,29 @@ export default function YoutubePlayer() {
         ws.current.onmessage = async (event) => {
             console.log('Received:', event.data);
             const data: socketMessage = JSON.parse(event.data);
-            if (data.type == "pause" || data.type == "play") {
+
+            if (data.type === "pause" || data.type === "play") {
                 videoData.current = JSON.parse(data?.jsonData || '{}');
-                const action = data.type == "pause" ? 'pause' : 'play';
+                const action = data.type === "pause" ? 'pause' : 'play';
                 handlePause(action, true);
             }
 
-            if (data.type == "seek") {
+            if (data.type === "seek") {
                 videoData.current.status = 'playing';
                 handleSeek(Math.round(Number(data.message)), true);
             }
 
-            if (data.type == "connected") {
+            if (data.type === "connected") {
                 videoData.current = JSON.parse(data?.jsonData || '{}');
                 if (videoData.current.videoId) {
                     setVideoId(videoData.current.videoId);
                 }
             }
 
-            if (data.type == "loadUrl") {
+            if (data.type === "loadUrl") {
                 videoData.current = JSON.parse(data?.jsonData || '{}');
                 setVideoId(videoData.current.videoId);
-                playerRef?.current?.loadVideoById(videoData.current.videoId)
+                playerRef?.current?.loadVideoById(videoData.current.videoId);
             }
         };
 
@@ -82,22 +140,28 @@ export default function YoutubePlayer() {
                 clearInterval(intervalRef.current);
             }
         };
-    }, []);
+    }, [isFullscreen]);
 
-    const playerRef = useRef<YouTubePlayer | null>(null);
     const onPlayerReady: YouTubeProps['onReady'] = (event) => {
         playerRef.current = event.target;
         setTotalDuration(playerRef.current.getDuration());
         playerReady.current = true;
-        const videoEnded = videoData.current.status === 'ended' || (videoData.current.status === 'playing' && (videoData.current.time + ((Date.now() - videoData.current.currentTime) / 1000)) >= playerRef.current.getDuration());
+
+        const videoEnded = videoData.current.status === 'ended' ||
+            (videoData.current.status === 'playing' &&
+                (videoData.current.time + ((Date.now() - videoData.current.currentTime) / 1000)) >= playerRef.current.getDuration());
+
         if (videoData.current.status === 'playing' && videoEnded) {
             videoData.current.status = 'ended';
         }
+
         if (videoData?.current?.videoId) {
             setVideoId(videoData.current.videoId);
-            playerRef?.current?.loadVideoById(videoData.current.videoId)
+            playerRef?.current?.loadVideoById(videoData.current.videoId);
         }
-        let timestamp = videoData.current?.currentTime ? (videoData.current?.time + (((Date.now() - videoData.current.currentTime)) / 1000)) : 0;
+
+        let timestamp = videoData.current?.currentTime ?
+            (videoData.current?.time + (((Date.now() - videoData.current.currentTime)) / 1000)) : 0;
         timestamp = videoData.current.status == 'paused' ? videoData.current?.time : timestamp;
         handleSeek(Math.round(Number(timestamp)), true);
     }
@@ -166,7 +230,7 @@ export default function YoutubePlayer() {
             setPaused(true);
         }
         let time = Math.round(playerRef?.current?.getCurrentTime()) || 0;
-        if (time >= (playerRef.current.getDuration() -1)) { time = 0 }
+        if (time >= (playerRef.current.getDuration() - 1)) { time = 0 }
         videoData.current = {
             time,
             currentTime: Date.now(),
@@ -231,7 +295,10 @@ export default function YoutubePlayer() {
         playerVars: {
             autoplay: 1,
             mute: 1,
-            modestbranding: 0,
+            modestbranding: 1,
+            controls: 0, // Disable YouTube controls
+            disablekb: 1, // Disable keyboard controls
+            fs: 0, // Disable fullscreen button
         },
     };
 
@@ -240,61 +307,76 @@ export default function YoutubePlayer() {
             <div>
                 <input type="search" placeholder="Enter youtube url" id="url" ref={urlInputRef} />
                 <button onClick={() => handleUrlLoad()}>Load video</button>
-            </div >
+            </div>
             {videoId &&
-                <div style={{
-                    width: '100%',
-                    height: '100vh',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    padding: '20px',
-                    boxSizing: 'border-box'
-                }}>
+                <div
+                    ref={playerContainerRef}
+                    style={{
+                        width: '100%',
+                        height: isFullscreen ? '100vh' : '70vh',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        padding: isFullscreen ? '0' : '20px',
+                        boxSizing: 'border-box',
+                        backgroundColor: isFullscreen ? '#000' : 'transparent'
+                    }}
+                >
                     <div style={{
                         width: '100%',
-                        height: '70%',
-                        marginBottom: '20px'
+                        height: '100%',
+                        marginBottom: isFullscreen ? '0' : '20px'
                     }}>
-                        <div style={{
-                            width: '100%',
-                            height: '100%'
-                        }}>
-                            <YouTube
-                                ref={playerRef}
-                                videoId={videoId}
-                                opts={opts}
-                                onReady={onPlayerReady}
-                                onPlay={onPlayerPlay}
-                                onPause={onPlayerPause}
-                                onEnd={onPlayerEnd}
-                                style={{
-                                    width: '100%',
-                                    height: '100%'
-                                }}
-                            />
-                        </div>
+                        <YouTube
+                            videoId={videoId}
+                            opts={opts}
+                            onReady={onPlayerReady}
+                            onPlay={onPlayerPlay}
+                            onPause={onPlayerPause}
+                            onEnd={onPlayerEnd}
+                            style={{
+                                width: '100%',
+                                height: '100%',
+                                pointerEvents: 'none'
+                            }}
+                        />
                     </div>
 
+                    {/* Controls Container - Hidden in fullscreen or shown as overlay */}
                     <div style={{
                         display: 'flex',
                         alignItems: 'center',
                         gap: '20px',
-                        marginBottom: '10px'
+                        marginBottom: '10px',
+                        padding: isFullscreen ? '20px' : '0',
+                        position: isFullscreen ? 'absolute' : 'static',
+                        bottom: isFullscreen ? '0' : 'auto',
+                        left: isFullscreen ? '0' : 'auto',
+                        right: isFullscreen ? '0' : 'auto',
+                        backgroundColor: isFullscreen ? 'rgba(0,0,0,0.7)' : 'transparent',
+                        zIndex: isFullscreen ? 1000 : 'auto'
                     }}>
                         <button onClick={() => handlePause(paused ? 'play' : 'pause')}>
                             {paused ? 'Play' : 'Pause'}
                         </button>
-                    </div>
 
-                    <div>
-                        {formatTime(currentTime)} / {formatTime(totalDuration)}
+                        <button onClick={() => toggleFullscreen()}>
+                            {isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+                        </button>
+
+                        <div style={{ color: isFullscreen ? '#fff' : '#000' }}>
+                            {formatTime(currentTime)} / {formatTime(totalDuration)}
+                        </div>
+
                         <input
                             type="range"
                             min="0"
                             max={totalDuration || 1}
                             value={currentTime}
                             onChange={(e) => handleSeek(Number(e.target.value))}
-                            style={{ width: '300px', marginLeft: '10px' }}
+                            style={{
+                                width: isFullscreen ? '300px' : '200px',
+                                marginLeft: '10px'
+                            }}
                             step="0.1"
                         />
                     </div>
