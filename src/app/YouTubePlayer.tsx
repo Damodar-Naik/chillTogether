@@ -2,6 +2,47 @@ import React, { useState, useEffect, useRef } from 'react';
 import YouTube, { YouTubePlayer, YouTubeProps } from 'react-youtube';
 import getVideoId from 'get-video-id';
 
+// Simple SVG icon components
+const PlayIcon = () => (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M8 5v14l11-7z" />
+    </svg>
+);
+
+const PauseIcon = () => (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
+    </svg>
+);
+
+const FullscreenIcon = () => (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" />
+    </svg>
+);
+
+const ExitFullscreenIcon = () => (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z" />
+    </svg>
+);
+
+// Define proper types for fullscreen APIs
+interface FullscreenDocument extends Document {
+    webkitExitFullscreen?: () => Promise<void>;
+    msExitFullscreen?: () => Promise<void>;
+}
+
+interface FullscreenElement extends HTMLElement {
+    webkitRequestFullscreen?: () => Promise<void>;
+    msRequestFullscreen?: () => Promise<void>;
+}
+
+interface FullscreenDocumentWithElements extends Document {
+    webkitFullscreenElement?: Element | null;
+    msFullscreenElement?: Element | null;
+}
+
 export default function YoutubePlayer() {
     const [totalDuration, setTotalDuration] = useState(0);
     const [currentTime, setCurrentTime] = useState(0);
@@ -39,25 +80,26 @@ export default function YoutubePlayer() {
 
     // Fullscreen functions
     const enterFullscreen = () => {
-        const element = playerContainerRef.current;
+        const element = playerContainerRef.current as FullscreenElement;
         if (!element) return;
 
-        if (element.requestFullscreen) {
-            element.requestFullscreen();
-        } else if ((element as any).webkitRequestFullscreen) {
-            (element as any).webkitRequestFullscreen();
-        } else if ((element as any).msRequestFullscreen) {
-            (element as any).msRequestFullscreen();
+        if (element?.requestFullscreen) {
+            element?.requestFullscreen();
+        } else if (element?.webkitRequestFullscreen) {
+            element.webkitRequestFullscreen();
+        } else if (element.msRequestFullscreen) {
+            element?.msRequestFullscreen();
         }
     };
 
     const exitFullscreen = () => {
-        if (document.exitFullscreen) {
-            document.exitFullscreen();
-        } else if ((document as any).webkitExitFullscreen) {
-            (document as any).webkitExitFullscreen();
-        } else if ((document as any).msExitFullscreen) {
-            (document as any).msExitFullscreen();
+        const doc = document as FullscreenDocument;
+        if (doc?.exitFullscreen) {
+            doc?.exitFullscreen();
+        } else if (doc?.webkitExitFullscreen) {
+            doc?.webkitExitFullscreen();
+        } else if (doc?.msExitFullscreen) {
+            doc?.msExitFullscreen();
         }
     };
 
@@ -70,24 +112,6 @@ export default function YoutubePlayer() {
     };
 
     // Fullscreen change event listener
-    useEffect(() => {
-        const handleFullscreenChange = () => {
-            const fullscreenElement = document.fullscreenElement ||
-                (document as any).webkitFullscreenElement ||
-                (document as any).msFullscreenElement;
-            setIsFullscreen(!!fullscreenElement);
-        };
-
-        document.addEventListener('fullscreenchange', handleFullscreenChange);
-        document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
-        document.addEventListener('msfullscreenchange', handleFullscreenChange);
-
-        return () => {
-            document.removeEventListener('fullscreenchange', handleFullscreenChange);
-            document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
-            document.removeEventListener('msfullscreenchange', handleFullscreenChange);
-        };
-    }, []);
 
     useEffect(() => {
         ws.current = new WebSocket(process.env.NEXT_PUBLIC_BACKEND_URL || 'ws://localhost:8080');
@@ -132,6 +156,17 @@ export default function YoutubePlayer() {
             }
         }, 100);
 
+        // Fullscreen change event listener
+        const handleFullscreenChange = () => {
+            const doc = document as FullscreenDocumentWithElements;
+            const fullscreenElement = doc?.fullscreenElement || doc?.webkitFullscreenElement || doc?.msFullscreenElement;
+            setIsFullscreen(!!fullscreenElement);
+        };
+
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
+        document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+        document.addEventListener('msfullscreenchange', handleFullscreenChange);
+
         return () => {
             if (ws.current) {
                 ws.current.close();
@@ -139,8 +174,13 @@ export default function YoutubePlayer() {
             if (intervalRef.current) {
                 clearInterval(intervalRef.current);
             }
+
+            // Fullscreen change event listener cleanup
+            document.removeEventListener('fullscreenchange', handleFullscreenChange);
+            document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+            document.removeEventListener('msfullscreenchange', handleFullscreenChange);
         };
-    }, [isFullscreen]);
+    }, []);
 
     const onPlayerReady: YouTubeProps['onReady'] = (event) => {
         playerRef.current = event.target;
@@ -318,13 +358,14 @@ export default function YoutubePlayer() {
                         flexDirection: 'column',
                         padding: isFullscreen ? '0' : '20px',
                         boxSizing: 'border-box',
-                        backgroundColor: isFullscreen ? '#000' : 'transparent'
+                        backgroundColor: isFullscreen ? '#000' : 'transparent',
+                        position: 'relative'
                     }}
                 >
                     <div style={{
                         width: '100%',
                         height: '100%',
-                        marginBottom: isFullscreen ? '0' : '20px'
+                        position: 'relative'
                     }}>
                         <YouTube
                             videoId={videoId}
@@ -339,46 +380,84 @@ export default function YoutubePlayer() {
                                 pointerEvents: 'none'
                             }}
                         />
-                    </div>
 
-                    {/* Controls Container - Hidden in fullscreen or shown as overlay */}
-                    <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '20px',
-                        marginBottom: '10px',
-                        padding: isFullscreen ? '20px' : '0',
-                        position: isFullscreen ? 'absolute' : 'static',
-                        bottom: isFullscreen ? '0' : 'auto',
-                        left: isFullscreen ? '0' : 'auto',
-                        right: isFullscreen ? '0' : 'auto',
-                        backgroundColor: isFullscreen ? 'rgba(0,0,0,0.7)' : 'transparent',
-                        zIndex: isFullscreen ? 1000 : 'auto'
-                    }}>
-                        <button onClick={() => handlePause(paused ? 'play' : 'pause')}>
-                            {paused ? 'Play' : 'Pause'}
-                        </button>
+                        {/* Controls overlaid inside the player */}
+                        <div style={{
+                            position: 'absolute',
+                            bottom: 0,
+                            left: 0,
+                            right: 0,
+                            background: 'linear-gradient(transparent, rgba(0,0,0,0.7))',
+                            padding: '20px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '10px'
+                        }}>
+                            {/* Progress bar */}
+                            <input
+                                type="range"
+                                min="0"
+                                max={totalDuration || 1}
+                                value={currentTime}
+                                onChange={(e) => handleSeek(Number(e.target.value))}
+                                style={{
+                                    width: '100%',
+                                    height: '4px',
+                                    background: '#666',
+                                    outline: 'none',
+                                    borderRadius: '2px'
+                                }}
+                                step="0.1"
+                            />
 
-                        <button onClick={() => toggleFullscreen()}>
-                            {isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
-                        </button>
+                            {/* Control buttons row */}
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '15px',
+                                color: '#fff'
+                            }}>
+                                <button
+                                    onClick={() => handlePause(paused ? 'play' : 'pause')}
+                                    style={{
+                                        background: 'none',
+                                        border: 'none',
+                                        color: 'white',
+                                        cursor: 'pointer',
+                                        padding: '8px',
+                                        borderRadius: '4px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center'
+                                    }}
+                                >
+                                    {paused ? <PlayIcon /> : <PauseIcon />}
+                                </button>
 
-                        <div style={{ color: isFullscreen ? '#fff' : '#000' }}>
-                            {formatTime(currentTime)} / {formatTime(totalDuration)}
+                                <div style={{ color: '#fff', fontSize: '14px' }}>
+                                    {formatTime(currentTime)} / {formatTime(totalDuration)}
+                                </div>
+
+                                <div style={{ flex: 1 }}></div>
+
+                                <button
+                                    onClick={() => toggleFullscreen()}
+                                    style={{
+                                        background: 'none',
+                                        border: 'none',
+                                        color: 'white',
+                                        cursor: 'pointer',
+                                        padding: '8px',
+                                        borderRadius: '4px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center'
+                                    }}
+                                >
+                                    {isFullscreen ? <ExitFullscreenIcon /> : <FullscreenIcon />}
+                                </button>
+                            </div>
                         </div>
-
-                        <input
-                            type="range"
-                            min="0"
-                            max={totalDuration || 1}
-                            value={currentTime}
-                            onChange={(e) => handleSeek(Number(e.target.value))}
-                            style={{
-                                width: isFullscreen ? '300px' : '200px',
-                                marginLeft: '10px'
-                            }}
-                            step="0.1"
-                        />
                     </div>
                 </div>
             }
